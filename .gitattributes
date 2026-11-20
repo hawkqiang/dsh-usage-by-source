@@ -1,0 +1,14 @@
+# Keep source files byte-identical across platforms; DSH loads them as JS/Markdown.
+* text=auto eol=lf
+
+*.yml text eol=lf
+*.mjs text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.svg text eol=lf
+
+# Test fixtures and images are binary-safe
+*.png binary
+*.jpg binary
+*.woff2 binary

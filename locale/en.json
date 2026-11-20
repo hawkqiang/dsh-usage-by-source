@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Token usage by source",
+    "description": "Breaks the composer token usage dialog down by caller source (main chat, subagents, compaction) and model, with a total."
+  }
+}

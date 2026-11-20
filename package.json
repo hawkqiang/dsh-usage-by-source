@@ -1,0 +1,51 @@
+{
+  "name": "@local/dsh-usage-by-source",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Break composer token usage down by model and caller source: uncached input, output, cache read, cache write, and totals for each.",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "test"
+  ],
+  "scripts": {
+    "test": "node --test test/client-registration.mjs test/model-totals.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hawkqiang/dsh-usage-by-source.git"
+  },
+  "homepage": "https://github.com/hawkqiang/dsh-usage-by-source#readme",
+  "license": "MIT",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "token-usage",
+    "observability"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-chat"
+      ]
+    }
+  }
+}

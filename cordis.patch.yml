@@ -1,0 +1,10 @@
+# usage-by-source bundle patch.
+#
+# One Host row: the session projection that attributes billed token usage to
+# the caller source (main chat / compaction) and the provider/model route.
+# The browser half ships as the package's dsh.client module and replaces the
+# composer `usage` dock cell.
+
+- insert:
+    - id: usage-by-source
+      name: '@local/dsh-usage-by-source'
