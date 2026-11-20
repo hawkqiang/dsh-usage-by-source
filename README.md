@@ -22,7 +22,7 @@
 ## 数据从哪来
 
 - **Host 投影** `usageBySource`：从会话日志折叠每条 `assistant/message` 的 provider/model 用量（来源＝主对话），以及 `compaction/summary` 自身那次模型调用的用量（来源＝上下文压缩）。重试按同一 turn/step 替换，不会重复计数。
-- **子代理**：客户端从会话列表里找出 `origin = subagent` 的所有后代会话（不只直接子级），再取各自的 `usageBySource` 汇总。检查点写入有轻微延迟，刚跑完的子代理可能晚一轮才出现；插件安装前就已结束的子代理要等它被重新读取一次才有数据。
+- **子代理**：运行时会话列表里，被委派的子会话通过 `SessionSummary.parentId`（父会话链接）挂在父会话下。客户端沿这条链接逐层找到全部后代会话，把各自的 `usageBySource` 汇总到「子代理」，因此主对话的合计包含子代理花费。子会话的用量优先读列表行携带的摘要值（`projectionValues.usageBySource`），没有再读共享的 `projectionsBySession`，仍缺时才按需触发一次 `sessions.refreshProjections(childId)`。检查点写入有轻微延迟，刚跑完的子代理可能晚一轮才出现。
 - 标题生成：DSH 没有把标题请求的 usage 写进会话日志，所以统计不到。
 
 ## 口径

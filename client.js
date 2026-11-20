@@ -109,6 +109,77 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /**
+     * Subagent sessions below one root, walked through the list's durable
+     * parent links. `SessionSummary` spells the link `parentId`; the older
+     * `parentSessionId` spelling is accepted for a shell that still sends it.
+     */
+    function descendantSessionIds(sessionList, sessionId) {
+      const byId = sessionList?.byId
+      if (byId === undefined || byId === null) return []
+      const childrenByParent = new Map()
+      for (const id of Object.keys(byId)) {
+        const summary = byId[id]
+        if (summary === undefined || summary === null) continue
+        // A delegated child is the only session kind that records a parent
+        // session, so the link itself is the lineage; `origin` filters out any
+        // other row that ever gains one.
+        if (summary.origin !== undefined && summary.origin !== 'subagent') continue
+        const parent = summary.parentId ?? summary.parentSessionId
+        if (parent === undefined) continue
+        const siblings = childrenByParent.get(parent)
+        if (siblings === undefined) childrenByParent.set(parent, [id])
+        else siblings.push(id)
+      }
+      const queue = [sessionId]
+      const seen = new Set(queue)
+      const ids = []
+      while (queue.length > 0) {
+        const parent = queue.shift()
+        for (const child of childrenByParent.get(parent) ?? []) {
+          if (seen.has(child)) continue
+          seen.add(child)
+          ids.push(child)
+          queue.push(child)
+        }
+      }
+      return ids
+    }
+
+    /**
+     * One child's `usageBySource` value. A listed row carries it as a summary
+     * projection value; an opened or explicitly read session carries it in the
+     * shared projection map. Either source holds the same wire object.
+     */
+    function childUsageValue(sessionList, child) {
+      const summary = sessionList?.byId?.[child]?.projectionValues?.['usageBySource']
+      if (summary !== undefined && summary !== null) return summary
+      return sessionList?.projectionsBySession?.[child]?.values?.['usageBySource']
+    }
+
+    /** This conversation's rows plus every descendant subagent's rows. */
+    function collectUsageRows(usage, sessionList, sessionId) {
+      const collected = []
+      if (usage !== undefined && usage !== null && Array.isArray(usage.rows)) {
+        for (const row of usage.rows) collected.push({ source: row.source, provider: row.provider, model: row.model, buckets: row })
+      }
+      const missing = []
+      for (const child of descendantSessionIds(sessionList, sessionId)) {
+        const value = childUsageValue(sessionList, child)
+        if (value === undefined || value === null || !Array.isArray(value.rows)) {
+          missing.push(child)
+          continue
+        }
+        for (const row of value.rows) {
+          collected.push({ source: 'subagent', provider: row.provider, model: row.model, buckets: row })
+        }
+      }
+      collected.sort((left, right) => right.buckets.totalTokens - left.buckets.totalTokens
+        || left.source.localeCompare(right.source)
+        || left.model.localeCompare(right.model))
+      return { rows: collected, missing }
+    }
+
     /** Merge routes across calls and descendants without adding projection totals again. */
     function groupUsageRows(rows, bySource) {
       const groups = new Map()
@@ -199,7 +270,7 @@ window.__ModuleLoader__.load({
 
     /** The composer entry: a reading pill plus its portaled breakdown dialog. */
     function UsageBySource(props) {
-      const { sessionId, useProjection, useSessions, usePerformanceUsage, t } = props
+      const { sessionId, useProjection, useSessions, usePerformanceUsage, prepareChildUsage, t } = props
       const mode = usePerformanceUsage(value => value)
       const usage = useProjection('usageBySource')
       const shipped = useProjection('tokenUsage')
@@ -209,46 +280,21 @@ window.__ModuleLoader__.load({
       const rootRef = React.useRef(null)
       const panelRef = React.useRef(null)
 
-      const rows = React.useMemo(() => {
-        const collected = []
-        if (usage !== undefined && usage !== null && Array.isArray(usage.rows)) {
-          for (const row of usage.rows) collected.push({ source: row.source, provider: row.provider, model: row.model, buckets: row })
+      const collected = React.useMemo(() => collectUsageRows(usage, sessionList, sessionId), [usage, sessionList, sessionId])
+      const rows = collected.rows
+
+      // A descendant whose summary hint carries no value yet is read on demand;
+      // remember each id so one list update cannot start the same read twice.
+      const requested = React.useRef(new Set())
+      React.useEffect(() => {
+        if (typeof prepareChildUsage !== 'function') return
+        for (const id of collected.missing) {
+          if (requested.current.has(id)) continue
+          requested.current.add(id)
+          const started = prepareChildUsage(id)
+          if (started !== undefined && typeof started.catch === 'function') started.catch(() => {})
         }
-        // Every descendant subagent session is part of this conversation's
-        // spend. Each child carries its own projection value; walk direct
-        // children and their children through the session list's parent links.
-        const byId = sessionList?.byId
-        const projections = sessionList?.projectionsBySession
-        if (usage !== undefined && usage !== null && byId !== undefined) {
-          const childrenByParent = new Map()
-          for (const id of Object.keys(byId)) {
-            const summary = byId[id]
-            if (summary === undefined || summary.origin !== 'subagent' || summary.parentSessionId === undefined) continue
-            const siblings = childrenByParent.get(summary.parentSessionId)
-            if (siblings === undefined) childrenByParent.set(summary.parentSessionId, [id])
-            else siblings.push(id)
-          }
-          const queue = [sessionId]
-          const seen = new Set(queue)
-          while (queue.length > 0) {
-            const parent = queue.shift()
-            for (const child of childrenByParent.get(parent) ?? []) {
-              if (seen.has(child)) continue
-              seen.add(child)
-              queue.push(child)
-              const value = projections?.[child]?.values?.['usageBySource']
-              if (value === undefined || value === null || !Array.isArray(value.rows)) continue
-              for (const row of value.rows) {
-                collected.push({ source: 'subagent', provider: row.provider, model: row.model, buckets: row })
-              }
-            }
-          }
-        }
-        collected.sort((left, right) => right.buckets.totalTokens - left.buckets.totalTokens
-          || left.source.localeCompare(right.source)
-          || left.model.localeCompare(right.model))
-        return collected
-      }, [usage, sessionList, sessionId])
+      }, [collected, prepareChildUsage])
 
       const models = React.useMemo(() => groupUsageRows(rows, false), [rows])
       const sources = React.useMemo(() => groupUsageRows(rows, true), [rows])
@@ -351,10 +397,13 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots', 'locale'],
+      inject: ['slots', 'locale', 'sessions'],
       apply(ctx) {
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'usage-by-source: dictionaries')
         const mode = createModeStore(ctx)
+        // Reading a descendant's projection is an explicit request; the session
+        // list carries a summary hint, and a child with no hint needs this read.
+        const prepareChildUsage = id => ctx.sessions?.refreshProjections?.(id)
         ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
           name: 'conversation.composer.dock',
           id: 'usage',
@@ -362,7 +411,7 @@ window.__ModuleLoader__.load({
           priority: -1,
           order: 1,
           locale: NS,
-          inject: () => ({ hooks: { performanceUsage: mode } }),
+          inject: () => ({ hooks: { performanceUsage: mode }, prepareChildUsage }),
         }, UsageBySource))
       },
     }
